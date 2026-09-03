@@ -26,4 +26,10 @@ app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
 });
 
+app.get("/", (_req, res) => {
+  res.json({
+    message: "E-Commerce API is running",
+  });
+});
+
 export default app;

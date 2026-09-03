@@ -20,11 +20,4 @@ app.get("/", (_req, res) => {
   });
 });
 
-
-app.get("/", (_req, res) => {
-  res.json({
-    message: "E-Commerce API is running",
-  });
-});
-
 export default app;

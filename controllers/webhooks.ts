@@ -1,6 +1,6 @@
 import { verifyWebhook } from "@clerk/express/webhooks";
 import type { Request, Response } from "express";
-import User from "../models/User"; // adjust path to your User model
+import User from "../models/User.js"; // adjust path to your User model
 
 const clerkwebhook = async (req: Request, res: Response) => {
   try {

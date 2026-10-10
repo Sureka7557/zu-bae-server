@@ -86,13 +86,15 @@ export interface IOrder extends Document {
 }
 
 export interface IAddress extends Document {
-	user: Types.ObjectId;
-	type: "Home" | "Work" | "Other";
-	street: string;
-	city: string;
-	state: string;
-	zipCode: string;
-	country: string;
-	isDefault: boolean;
-	createdAt: Date;
+  user: Types.ObjectId;
+  fullName: string;
+  phone: string;
+  type: "Home" | "Work" | "Other";
+  street: string;
+  city: string;
+  state: string;
+  zipCode: string;
+  country: string;
+  isDefault: boolean;
+  createdAt: Date;
 }

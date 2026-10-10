@@ -220,9 +220,9 @@ export const getProduct = async (
   res: Response
 ) => {
   try {
-    const { id } = req.params;
+    const id = req.params.id;
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
+    if (typeof id !== "string" || !mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
         success: false,
         message: "Invalid product ID",
@@ -509,9 +509,9 @@ export const updateProduct = async (
   res: Response
 ) => {
   try {
-    const { id } = req.params;
+    const id = req.params.id;
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
+    if (typeof id !== "string" || !mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
         success: false,
         message: "Invalid product ID",
@@ -708,9 +708,9 @@ export const deleteProduct = async (
   res: Response
 ) => {
   try {
-    const { id } = req.params;
+    const id = req.params.id;
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
+    if (typeof id !== "string" || !mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
         success: false,
         message: "Invalid product ID",
@@ -768,7 +768,10 @@ export const updateProductStock = async (
     const { id } = req.params;
     const { quantity } = req.body;
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
+    if (
+  typeof id !== "string" ||
+  !mongoose.Types.ObjectId.isValid(id)
+  ) {
       return res.status(400).json({
         success: false,
         message: "Invalid product ID",

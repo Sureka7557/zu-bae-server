@@ -14,7 +14,7 @@ export const requireAdminAuth = async (
   try {
     // Verifies the incoming request's session token against the ADMIN
     // Clerk instance specifically (not the default app's instance).
-    const requestState = await adminClerkClient.authenticateRequest(req, {
+    const requestState = await adminClerkClient.authenticateRequest(req as unknown as globalThis.Request, {
       authorizedParties: process.env.ADMIN_APP_URL
         ? [process.env.ADMIN_APP_URL]
         : undefined,
@@ -27,7 +27,7 @@ export const requireAdminAuth = async (
       });
     }
 
-    const auth = requestState.toAuth();
+    const auth = requestState.toAuth() as any;
     const role = (auth.sessionClaims?.metadata as { role?: string } | undefined)
       ?.role;
 

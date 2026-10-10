@@ -29,6 +29,7 @@ export interface IProduct {
   updatedAt?: Date;
 }
 export interface ICartItem {
+  _id?: Types.ObjectId;
 	product: Types.ObjectId;
 	quantity: number;
 	price: number;

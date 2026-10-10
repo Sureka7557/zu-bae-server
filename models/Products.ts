@@ -74,7 +74,7 @@ productSchema.index({
 });
 
 const Product =
-  mongoose.models.Product ||
+  (mongoose.models.Product as mongoose.Model<IProduct> | undefined) ||
   mongoose.model<IProduct>("Product", productSchema);
 
 export default Product;

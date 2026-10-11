@@ -6,9 +6,10 @@ import { v2 as cloudinary } from "cloudinary";
 import { getAuth } from "@clerk/express";
 import User from "../models/User.js";
 
+const router = Router();
+
 // --------------------------------------------------
 // CLOUDINARY CONFIGURATION
-// Set these in Vercel Environment Variables.
 // --------------------------------------------------
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -22,7 +23,7 @@ cloudinary.config({
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 5 * 1024 * 1024, // Maximum 5 MB
+    fileSize: 5 * 1024 * 1024,
   },
   fileFilter: (_req, file, cb) => {
     const allowedTypes = [
@@ -40,7 +41,7 @@ const upload = multer({
   },
 });
 
-// Handle image validation and Multer errors.
+// Convert Multer errors to useful responses.
 const handleAvatarUpload = (
   req: Request,
   res: Response,
@@ -48,15 +49,18 @@ const handleAvatarUpload = (
 ) => {
   upload.single("image")(req, res, (err: any) => {
     if (err) {
-      console.error("MULTER_ERROR:", err?.message);
+      console.error("MULTER_ERROR:", {
+        name: err?.name,
+        code: err?.code,
+        message: err?.message,
+      });
 
-      const status = err?.code === "LIMIT_FILE_SIZE" ? 413 : 400;
+      const tooLarge = err?.code === "LIMIT_FILE_SIZE";
 
-      return res.status(status).json({
-        message:
-          err?.code === "LIMIT_FILE_SIZE"
-            ? "Image must be smaller than 5 MB."
-            : err?.message || "Invalid image upload.",
+      return res.status(tooLarge ? 413 : 400).json({
+        message: tooLarge
+          ? "Image must be smaller than 5 MB."
+          : err?.message || "Invalid image upload.",
       });
     }
 
@@ -64,11 +68,8 @@ const handleAvatarUpload = (
   });
 };
 
-const router = Router();
-
 // --------------------------------------------------
 // GET /api/users/me
-// Get the current user's MongoDB profile.
 // --------------------------------------------------
 router.get("/me", async (req, res) => {
   try {
@@ -103,12 +104,11 @@ router.get("/me", async (req, res) => {
 
 // --------------------------------------------------
 // PUT /api/users/me/avatar
-// Upload an image to Cloudinary and save its URL.
 // Multipart form-data field: image
 // --------------------------------------------------
 router.put("/me/avatar", handleAvatarUpload, async (req, res) => {
   try {
-    // Verify authentication.
+    // 1. Verify Clerk authentication.
     const { userId } = getAuth(req);
 
     if (!userId) {
@@ -117,31 +117,36 @@ router.put("/me/avatar", handleAvatarUpload, async (req, res) => {
       });
     }
 
-    // Verify image exists.
+    // 2. Verify that an image was received.
     if (!req.file) {
       return res.status(400).json({
         message: "No image provided.",
       });
     }
 
-    // Verify Cloudinary configuration without logging secrets.
+    // 3. Verify Cloudinary configuration without exposing secrets.
     const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
     const apiKey = process.env.CLOUDINARY_API_KEY;
     const apiSecret = process.env.CLOUDINARY_API_SECRET;
 
+    console.log("AVATAR_UPLOAD_START:", {
+      cloudNameConfigured: Boolean(cloudName),
+      apiKeyConfigured: Boolean(apiKey),
+      apiSecretConfigured: Boolean(apiSecret),
+      fileReceived: Boolean(req.file),
+      fileSize: req.file.size,
+      mimeType: req.file.mimetype,
+    });
+
     if (!cloudName || !apiKey || !apiSecret) {
-      console.error("CLOUDINARY_CONFIG_ERROR:", {
-        cloudNameConfigured: Boolean(cloudName),
-        apiKeyConfigured: Boolean(apiKey),
-        apiSecretConfigured: Boolean(apiSecret),
-      });
+      console.error("CLOUDINARY_CONFIG_ERROR: Missing environment variable");
 
       return res.status(500).json({
         message: "Image service is not configured correctly.",
       });
     }
 
-    // Upload the image to Cloudinary.
+    // 4. Upload the image to Cloudinary.
     const uploaded: any = await new Promise((resolve, reject) => {
       const stream = cloudinary.uploader.upload_stream(
         {
@@ -169,34 +174,37 @@ router.put("/me/avatar", handleAvatarUpload, async (req, res) => {
       stream.end(req.file!.buffer);
     });
 
+    console.log("CLOUDINARY_UPLOAD_SUCCESS:", {
+      publicId: uploaded.public_id,
+      version: uploaded.version,
+    });
+
+    // 5. Save the uploaded image URL in MongoDB.
     const imageUrl = `${uploaded.secure_url}?v=${uploaded.version}`;
 
-    // Save the image URL to MongoDB.
-    const user = await User.findOneAndUpdate(
+    const updatedUser = await User.findOneAndUpdate(
       { clerkId: userId },
       { $set: { image: imageUrl } },
       { new: true, runValidators: true }
     );
 
-    if (!user) {
+    if (!updatedUser) {
+      console.error("AVATAR_DATABASE_ERROR: User not found", { userId });
+
       return res.status(404).json({
-        message:
-          "Image uploaded, but the user profile was not found in the database.",
+        message: "Image uploaded, but the user profile was not found.",
       });
     }
 
-    console.log("AVATAR_UPLOAD_SUCCESS:", {
-      userId,
-      cloudinaryPublicId: uploaded.public_id,
-    });
+    console.log("AVATAR_UPLOAD_SUCCESS:", { userId });
 
     return res.status(200).json({
       message: "Profile photo updated successfully.",
-      image: user.image,
-      user,
+      image: updatedUser.image,
+      user: updatedUser,
     });
   } catch (err: any) {
-    // Log diagnostic details without exposing credentials.
+    // Log diagnostics without logging credentials or tokens.
     console.error("CLOUDINARY_UPLOAD_FAILURE:", {
       name: err?.name,
       message: err?.message,
@@ -241,19 +249,19 @@ router.put("/me", async (req, res) => {
       update.name = name.trim();
     }
 
-    const user = await User.findOneAndUpdate(
+    const updatedUser = await User.findOneAndUpdate(
       { clerkId: userId },
       { $set: update },
       { new: true, runValidators: true }
     );
 
-    if (!user) {
+    if (!updatedUser) {
       return res.status(404).json({
         message: "User not found.",
       });
     }
 
-    return res.json(user);
+    return res.json(updatedUser);
   } catch (err: any) {
     console.error("UPDATE_PROFILE_ERROR:", {
       name: err?.name,
@@ -261,7 +269,7 @@ router.put("/me", async (req, res) => {
     });
 
     return res.status(500).json({
-      message: "Failed  to update profile.",
+      message: "Failed to update profile.",
     });
   }
 });

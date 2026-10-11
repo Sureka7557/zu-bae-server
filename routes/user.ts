@@ -268,5 +268,52 @@ router.put("/me", async (req, res) => {
     });
   }
 });
+router.put("/me/avatar-url", async (req, res) => {
+  try {
+    const { userId } = getAuth(req);
+    const { image } = req.body as { image?: string };
+
+    if (!userId) {
+      return res.status(401).json({
+        message: "Unauthorized.",
+      });
+    }
+
+    if (
+      typeof image !== "string" ||
+      !image.startsWith("https://")
+    ) {
+      return res.status(400).json({
+        message: "A valid HTTPS image URL is required.",
+      });
+    }
+
+    const updatedUser = await User.findOneAndUpdate(
+      { clerkId: userId },
+      { $set: { image } },
+      { new: true, runValidators: true }
+    );
+
+    if (!updatedUser) {
+      return res.status(404).json({
+        message: "User profile not found in MongoDB.",
+      });
+    }
+
+    return res.json({
+      message: "Avatar URL saved successfully.",
+      image: updatedUser.image,
+    });
+  } catch (error: any) {
+    console.error("AVATAR_URL_DATABASE_ERROR:", {
+      message: error?.message,
+      name: error?.name,
+    });
+
+    return res.status(500).json({
+      message: "Failed to save avatar URL to the database.",
+    });
+  }
+});
 
 export default router;

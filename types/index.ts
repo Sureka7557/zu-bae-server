@@ -23,6 +23,8 @@ export interface IProduct {
     | "Bags"
     | "Other";
   stock: number;
+  rating: number;
+  reviews: number;
   isFeatured: boolean;
   isActive: boolean;
   createdAt?: Date;

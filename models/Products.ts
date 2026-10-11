@@ -52,6 +52,17 @@ const productSchema = new Schema<IProduct>(
       default: 0,
       min: 0,
     },
+    rating: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 5,
+    },
+    reviews: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
 
     isFeatured: {
       type: Boolean,

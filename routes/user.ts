@@ -1,23 +1,9 @@
 import { Router } from "express";
+import type { Request, Response, NextFunction } from "express";
 import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
 import { getAuth } from "@clerk/express";
 import User from "../models/User.js";
-
-/**
- * Required env vars:
- *   CLOUDINARY_CLOUD_NAME
- *   CLOUDINARY_API_KEY
- *   CLOUDINARY_API_SECRET
- *
- * Install:
- *   npm i multer cloudinary
- *   npm i -D @types/multer
- *
- * Mount in your app:
- *   import userRoutes from "./routes/userRoutes.js";
- *   app.use("/api/users", userRoutes);
- */
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -34,19 +20,31 @@ const upload = multer({
   },
 });
 
+// Returns multer errors (file too large, wrong type) as clean 400 responses
+const handleAvatarUpload = (req: Request, res: Response, next: NextFunction) => {
+  upload.single("image")(req, res, (err: any) => {
+    if (err) {
+      console.error("MULTER_ERROR:", err?.message);
+      return res.status(400).json({
+        message:
+          err?.code === "LIMIT_FILE_SIZE"
+            ? "Image must be smaller than 5 MB"
+            : err?.message || "Invalid upload",
+      });
+    }
+    next();
+  });
+};
+
 const router = Router();
 
-/**
- * GET /api/users/me
- * Returns the logged-in user's profile from MongoDB.
- * Creates the DB record if it doesn't exist yet.
- */
+// GET /api/users/me
 router.get("/me", async (req, res) => {
   try {
     const { userId } = getAuth(req);
     if (!userId) return res.status(401).json({ message: "Unauthorized" });
 
-    let user = await User.findOne({ clerkId: userId });
+    const user = await User.findOne({ clerkId: userId });
 
     if (!user) {
       return res.status(404).json({ message: "User not found" });
@@ -59,12 +57,8 @@ router.get("/me", async (req, res) => {
   }
 });
 
-/**
- * PUT /api/users/me/avatar
- * multipart/form-data with field "image".
- * Uploads to Cloudinary and saves the URL in User.image (MongoDB).
- */
-router.put("/me/avatar", upload.single("image"), async (req, res) => {
+// PUT /api/users/me/avatar  (multipart/form-data, field name: "image")
+router.put("/me/avatar", handleAvatarUpload, async (req, res) => {
   try {
     const { userId } = getAuth(req);
     if (!userId) return res.status(401).json({ message: "Unauthorized" });
@@ -88,7 +82,6 @@ router.put("/me/avatar", upload.single("image"), async (req, res) => {
         .end(req.file!.buffer);
     });
 
-    // Cache-bust so the app doesn't keep showing the old picture
     const imageUrl = `${uploaded.secure_url}?v=${uploaded.version}`;
 
     const user = await User.findOneAndUpdate(
@@ -100,16 +93,22 @@ router.put("/me/avatar", upload.single("image"), async (req, res) => {
     if (!user) return res.status(404).json({ message: "User not found" });
 
     return res.json(user);
-  } catch (err) {
-    console.error("PUT /me/avatar error:", err);
-    return res.status(500).json({ message: "Image upload failed" });
+  } catch (err: any) {
+    console.error("AVATAR_UPLOAD_DEBUG:", {
+      name: err?.name,
+      message: err?.message,
+      http_code: err?.http_code,
+      cloudinaryError: err?.error?.message,
+      stack: err?.stack,
+    });
+
+    return res.status(500).json({
+      message: err?.message || "Image upload failed",
+    });
   }
 });
 
-/**
- * PUT /api/users/me
- * Optional: keep name in sync in MongoDB too.
- */
+// PUT /api/users/me
 router.put("/me", async (req, res) => {
   try {
     const { userId } = getAuth(req);

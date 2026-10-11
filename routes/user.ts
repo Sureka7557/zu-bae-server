@@ -8,18 +8,13 @@ import User from "../models/User.js";
 
 const router = Router();
 
-// --------------------------------------------------
-// CLOUDINARY CONFIGURATION
-// --------------------------------------------------
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// --------------------------------------------------
-// IMAGE UPLOAD CONFIGURATION
-// --------------------------------------------------
+
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {

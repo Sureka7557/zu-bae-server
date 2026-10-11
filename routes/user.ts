@@ -1,70 +1,13 @@
 
 import { Router } from "express";
-import type { Request, Response, NextFunction } from "express";
-import multer from "multer";
-import { v2 as cloudinary } from "cloudinary";
 import { getAuth } from "@clerk/express";
 import User from "../models/User.js";
 
 const router = Router();
 
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
-
-
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 5 * 1024 * 1024,
-  },
-  fileFilter: (_req, file, cb) => {
-    const allowedTypes = [
-      "image/jpeg",
-      "image/png",
-      "image/webp",
-      "image/gif",
-    ];
-
-    if (allowedTypes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error("Only JPEG, PNG, WEBP, and GIF images are allowed"));
-    }
-  },
-});
-
-// Convert Multer errors to useful responses.
-const handleAvatarUpload = (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  upload.single("image")(req, res, (err: any) => {
-    if (err) {
-      console.error("MULTER_ERROR:", {
-        name: err?.name,
-        code: err?.code,
-        message: err?.message,
-      });
-
-      const tooLarge = err?.code === "LIMIT_FILE_SIZE";
-
-      return res.status(tooLarge ? 413 : 400).json({
-        message: tooLarge
-          ? "Image must be smaller than 5 MB."
-          : err?.message || "Invalid image upload.",
-      });
-    }
-
-    next();
-  });
-};
-
 // --------------------------------------------------
 // GET /api/users/me
+// Load the signed-in user's MongoDB profile.
 // --------------------------------------------------
 router.get("/me", async (req, res) => {
   try {
@@ -80,11 +23,11 @@ router.get("/me", async (req, res) => {
 
     if (!user) {
       return res.status(404).json({
-        message: "User not found.",
+        message: "User profile not found.",
       });
     }
 
-    return res.json(user);
+    return res.status(200).json(user);
   } catch (err: any) {
     console.error("GET_PROFILE_ERROR:", {
       name: err?.name,
@@ -98,127 +41,95 @@ router.get("/me", async (req, res) => {
 });
 
 // --------------------------------------------------
-// PUT /api/users/me/avatar
-// Multipart form-data field: image
+// PUT /api/users/me/avatar-url
+// Save the already-uploaded Clerk avatar URL to MongoDB.
+// JSON body: { "image": "https://..." }
 // --------------------------------------------------
-router.put("/me/avatar", handleAvatarUpload, async (req, res) => {
+router.put("/me/avatar-url", async (req, res) => {
   try {
-    // 1. Verify Clerk authentication.
     const { userId } = getAuth(req);
 
     if (!userId) {
       return res.status(401).json({
-        message: "Unauthorized. Please sign in again.",
+        message: "Unauthorized. Please sign in.",
       });
     }
 
-    // 2. Verify that an image was received.
-    if (!req.file) {
+    const { image } = req.body as { image?: string };
+
+    if (typeof image !== "string" || !image.trim()) {
       return res.status(400).json({
-        message: "No image provided.",
+        message: "Avatar image URL is required.",
       });
     }
 
-    // 3. Verify Cloudinary configuration without exposing secrets.
-    const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
-    const apiKey = process.env.CLOUDINARY_API_KEY;
-    const apiSecret = process.env.CLOUDINARY_API_SECRET;
+    let parsedUrl: URL;
 
-    console.log("AVATAR_UPLOAD_START:", {
-      cloudNameConfigured: Boolean(cloudName),
-      apiKeyConfigured: Boolean(apiKey),
-      apiSecretConfigured: Boolean(apiSecret),
-      fileReceived: Boolean(req.file),
-      fileSize: req.file.size,
-      mimeType: req.file.mimetype,
-    });
-
-    if (!cloudName || !apiKey || !apiSecret) {
-      console.error("CLOUDINARY_CONFIG_ERROR: Missing environment variable");
-
-      return res.status(500).json({
-        message: "Image service is not configured correctly.",
+    try {
+      parsedUrl = new URL(image);
+    } catch {
+      return res.status(400).json({
+        message: "Invalid avatar URL.",
       });
     }
 
-    // 4. Upload the image to Cloudinary.
-    const uploaded: any = await new Promise((resolve, reject) => {
-      const stream = cloudinary.uploader.upload_stream(
-        {
-          folder: "avatars",
-          public_id: userId,
-          overwrite: true,
-          invalidate: true,
-          resource_type: "image",
-        },
-        (error, result) => {
-          if (error) {
-            reject(error);
-            return;
-          }
+    // Accept HTTPS image URLs hosted by Clerk.
+    const hostname = parsedUrl.hostname.toLowerCase();
 
-          if (!result?.secure_url) {
-            reject(new Error("Cloudinary returned no secure image URL."));
-            return;
-          }
+    const isClerkHost =
+      hostname === "img.clerk.com" ||
+      hostname.endsWith(".clerk.accounts.dev") ||
+      hostname === "clerk.accounts.dev" ||
+      hostname.endsWith(".clerk.com");
 
-          resolve(result);
-        }
-      );
-
-      stream.end(req.file!.buffer);
-    });
-
-    console.log("CLOUDINARY_UPLOAD_SUCCESS:", {
-      publicId: uploaded.public_id,
-      version: uploaded.version,
-    });
-
-    // 5. Save the uploaded image URL in MongoDB.
-    const imageUrl = `${uploaded.secure_url}?v=${uploaded.version}`;
+    if (parsedUrl.protocol !== "https:" || !isClerkHost) {
+      return res.status(400).json({
+        message: "A valid Clerk HTTPS avatar URL is required.",
+      });
+    }
 
     const updatedUser = await User.findOneAndUpdate(
       { clerkId: userId },
-      { $set: { image: imageUrl } },
-      { new: true, runValidators: true }
+      {
+        $set: {
+          image: parsedUrl.toString(),
+        },
+      },
+      {
+        new: true,
+        runValidators: true,
+      }
     );
 
     if (!updatedUser) {
-      console.error("AVATAR_DATABASE_ERROR: User not found", { userId });
-
       return res.status(404).json({
-        message: "Image uploaded, but the user profile was not found.",
+        message:
+          "User profile not found in MongoDB. Create the user record first.",
       });
     }
 
-    console.log("AVATAR_UPLOAD_SUCCESS:", { userId });
+    console.log("AVATAR_URL_DATABASE_SUCCESS:", { userId });
 
     return res.status(200).json({
-      message: "Profile photo updated successfully.",
+      message: "Avatar URL saved to MongoDB successfully.",
       image: updatedUser.image,
       user: updatedUser,
     });
   } catch (err: any) {
-    // Log diagnostics without logging credentials or tokens.
-    console.error("CLOUDINARY_UPLOAD_FAILURE:", {
+    console.error("AVATAR_URL_DATABASE_ERROR:", {
       name: err?.name,
       message: err?.message,
-      http_code: err?.http_code,
-      error: err?.error,
-      response: err?.response,
-      responseBody: err?.response?.body,
-      responseHeaders: err?.response?.headers,
     });
 
     return res.status(500).json({
-      message: "Image upload failed. Check backend logs.",
+      message: "Failed to save avatar URL to the database.",
     });
   }
 });
 
 // --------------------------------------------------
 // PUT /api/users/me
-// Update the current user's name.
+// Update the signed-in user's name in MongoDB.
 // --------------------------------------------------
 router.put("/me", async (req, res) => {
   try {
@@ -247,16 +158,19 @@ router.put("/me", async (req, res) => {
     const updatedUser = await User.findOneAndUpdate(
       { clerkId: userId },
       { $set: update },
-      { new: true, runValidators: true }
+      {
+        new: true,
+        runValidators: true,
+      }
     );
 
     if (!updatedUser) {
       return res.status(404).json({
-        message: "User not found.",
+        message: "User profile not found.",
       });
     }
 
-    return res.json(updatedUser);
+    return res.status(200).json(updatedUser);
   } catch (err: any) {
     console.error("UPDATE_PROFILE_ERROR:", {
       name: err?.name,
@@ -265,53 +179,6 @@ router.put("/me", async (req, res) => {
 
     return res.status(500).json({
       message: "Failed to update profile.",
-    });
-  }
-});
-router.put("/me/avatar-url", async (req, res) => {
-  try {
-    const { userId } = getAuth(req);
-    const { image } = req.body as { image?: string };
-
-    if (!userId) {
-      return res.status(401).json({
-        message: "Unauthorized.",
-      });
-    }
-
-    if (
-      typeof image !== "string" ||
-      !image.startsWith("https://")
-    ) {
-      return res.status(400).json({
-        message: "A valid HTTPS image URL is required.",
-      });
-    }
-
-    const updatedUser = await User.findOneAndUpdate(
-      { clerkId: userId },
-      { $set: { image } },
-      { new: true, runValidators: true }
-    );
-
-    if (!updatedUser) {
-      return res.status(404).json({
-        message: "User profile not found in MongoDB.",
-      });
-    }
-
-    return res.json({
-      message: "Avatar URL saved successfully.",
-      image: updatedUser.image,
-    });
-  } catch (error: any) {
-    console.error("AVATAR_URL_DATABASE_ERROR:", {
-      message: error?.message,
-      name: error?.name,
-    });
-
-    return res.status(500).json({
-      message: "Failed to save avatar URL to the database.",
     });
   }
 });

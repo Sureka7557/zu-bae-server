@@ -3,7 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 
 import connectDB from "./config/db.js";
-
+import user from "./routes/user.js"
 import { clerkMiddleware } from "@clerk/express";
 import { requireAdminAuth } from "./middleware/requireAdmin.js";
 import clerkwebhook from "./controllers/webhooks.js";
@@ -67,7 +67,7 @@ app.use(
   requireAdminAuth,
   AdminRouter
 )
-
+app.use("/api/users", user);
 app.get("/", (_req, res) => {
   res.json({
     success: true,

@@ -1,3 +1,4 @@
+
 import dotenv from "dotenv";
 import mongoose from "mongoose";
 import Product from "../models/Products";
@@ -13,6 +14,8 @@ const products = [
     sizes: ["S", "M", "L", "XL"],
     category: "Men",
     stock: 50,
+    rating: 4.5,
+    reviews: 128,
     isFeatured: true,
     isActive: true,
   },
@@ -24,6 +27,8 @@ const products = [
     sizes: ["S", "M", "L"],
     category: "Women",
     stock: 25,
+    rating: 4.8,
+    reviews: 96,
     isFeatured: true,
     isActive: true,
   },
@@ -35,6 +40,8 @@ const products = [
     sizes: ["2Y", "4Y", "6Y", "8Y"],
     category: "Kids",
     stock: 30,
+    rating: 4.4,
+    reviews: 54,
     isFeatured: true,
     isActive: true,
   },
@@ -46,6 +53,8 @@ const products = [
     sizes: ["6", "7", "8", "9", "10"],
     category: "Shoes",
     stock: 20,
+    rating: 4.7,
+    reviews: 182,
     isFeatured: true,
     isActive: true,
   },
@@ -57,6 +66,8 @@ const products = [
     sizes: ["One Size"],
     category: "Bags",
     stock: 15,
+    rating: 4.6,
+    reviews: 87,
     isFeatured: true,
     isActive: true,
   },
@@ -69,6 +80,8 @@ const products = [
     images: ["https://res.cloudinary.com/dnkkxdwjt/image/upload/v1791620089/kurti_auus91.jpg"],
     sizes: ["S", "M", "L", "XL"],
     stock: 25,
+    rating: 4.5,
+    reviews: 73,
     isFeatured: true,
     isActive: true,
   },
@@ -81,6 +94,8 @@ const products = [
     images: ["https://res.cloudinary.com/dnkkxdwjt/image/upload/v1791620088/heel_shoe_mf7j7e.jpg"],
     sizes: ["6", "7", "8", "9", "10"],
     stock: 20,
+    rating: 4.6,
+    reviews: 64,
     isFeatured: true,
     isActive: true,
   },
@@ -93,6 +108,8 @@ const products = [
     images: ["https://res.cloudinary.com/dnkkxdwjt/image/upload/v1791620088/jacket_ej5qw9.jpg"],
     sizes: ["S", "M", "L", "XL"],
     stock: 15,
+    rating: 4.3,
+    reviews: 41,
     isFeatured: false,
     isActive: true,
   },
@@ -105,6 +122,8 @@ const products = [
     images: ["https://res.cloudinary.com/dnkkxdwjt/image/upload/v1791620088/heel_dm59rw.jpg"],
     sizes: ["5", "6", "7", "8", "9"],
     stock: 12,
+    rating: 4.8,
+    reviews: 112,
     isFeatured: true,
     isActive: true,
   },
@@ -117,10 +136,11 @@ const products = [
     images: ["https://res.cloudinary.com/dnkkxdwjt/image/upload/v1791620088/cherry_heels_aowupk.jpg"],
     sizes: ["5", "6", "7", "8", "9"],
     stock: 10,
+    rating: 4.7,
+    reviews: 89,
     isFeatured: true,
     isActive: true,
   },
-
 ];
 
 async function seedProducts() {
@@ -128,12 +148,13 @@ async function seedProducts() {
     const mongoUri = process.env.MONGODB_URI;
 
     if (!mongoUri) {
-      throw new Error("MONGODB_URI is missing from the server .env file");
+      throw new Error(
+        "MONGODB_URI is missing from the server .env file"
+      );
     }
 
     await mongoose.connect(mongoUri);
 
-    // Safe to rerun: updates matching products instead of duplicating them.
     for (const product of products) {
       await Product.updateOne(
         { name: product.name },
@@ -142,12 +163,16 @@ async function seedProducts() {
       );
     }
 
-    console.log(`Successfully seeded ${products.length} products.`);
+    console.log(
+      `Successfully seeded ${products.length} products with ratings and reviews.`
+    );
   } catch (error) {
     console.error("Product seeding failed:", error);
     process.exitCode = 1;
   } finally {
-    await mongoose.disconnect();
+    if (mongoose.connection.readyState !== 0) {
+      await mongoose.disconnect();
+    }
   }
 }
 

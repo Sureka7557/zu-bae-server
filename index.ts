@@ -13,6 +13,7 @@ import productRoutes from "./routes/productRoutes.js";
 import OrderRouter from "./routes/orderRoutes.js";
 import AddressRouter from "./routes/addressRoutes.js";
 import AdminRouter from "./routes/adminRoutes.js";
+import reviewsRouter from "./routes/reviews.js";
 
 dotenv.config();
 
@@ -67,7 +68,13 @@ app.use(
   requireAdminAuth,
   AdminRouter
 )
-app.use("/api/users", user);
+app.use(
+  "/api/users",
+   user);
+app.use(
+  "/api/reviews",
+   reviewsRouter);
+   
 app.get("/", (_req, res) => {
   res.json({
     success: true,

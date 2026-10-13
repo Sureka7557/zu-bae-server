@@ -38,12 +38,14 @@ router.post("/", async (req, res) => {
       return res.status(400).json({ message: "Comment must be 2000 characters or fewer." });
     }
 
-    const review = await Review.create({
+    const review = new Review({
       clerkId: userId,
       rating,
-      selectedTags: selectedTags ?? [],
-      comment: typeof comment === "string" ? comment.trim() : "",
+      selectedTags,
+      comment,
     });
+
+    await review.save();
 
     return res.status(201).json({
       message: "Review submitted successfully.",

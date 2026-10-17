@@ -1,84 +1,52 @@
 import { createClerkClient } from "@clerk/express";
 import User from "../models/User.js";
 
-// Separate client bound to the ADMIN Clerk application's secret key,
-// distinct from the default `clerkClient` used for the main app.
-const adminClerkClient = createClerkClient({
-  secretKey: process.env.ADMIN_CLERK_SECRET_KEY,
-});
-
+// Promotes ADMIN_EMAIL to admin. The account must already exist in the ADMIN
+// Clerk app (sign up once on the dashboard's /signup page), then restart the
+// server. The MongoDB role is updated too if a matching user exists.
 const makeAdmin = async () => {
   try {
     const email = process.env.ADMIN_EMAIL?.trim();
+    const secretKey = process.env.ADMIN_CLERK_SECRET_KEY;
 
     if (!email) {
       console.error("ADMIN_EMAIL is not configured in .env");
       return;
     }
-
-    console.log(`Looking for admin user: ${email}`);
-
-    // Find user in MongoDB
-    const user = await User.findOne({ email });
-
-    if (!user) {
-      console.error(
-        `User with email ${email} was not found in MongoDB.`
-      );
+    if (!secretKey) {
+      console.error("ADMIN_CLERK_SECRET_KEY is not configured in .env");
       return;
     }
 
-    // Find user in the ADMIN Clerk instance using email
+    const adminClerkClient = createClerkClient({ secretKey });
+
     const clerkUsers = await adminClerkClient.users.getUserList({
       emailAddress: [email],
       limit: 1,
     });
 
-    if (!clerkUsers.data || clerkUsers.data.length === 0) {
+    const clerkUser = clerkUsers.data?.[0];
+    if (!clerkUser) {
       console.error(
-        `User with email ${email} was not found in the admin Clerk instance.`
+        `No account for ${email} in the admin Clerk app yet. Sign up on the dashboard first, then restart the server.`
       );
       return;
     }
 
-    const clerkUser = clerkUsers.data[0];
-
-    if (!clerkUser) {
-      console.error("Admin Clerk user could not be found.");
-      return;
+    const currentRole = (clerkUser.publicMetadata as { role?: string } | undefined)?.role;
+    if (currentRole !== "admin") {
+      await adminClerkClient.users.updateUserMetadata(clerkUser.id, {
+        publicMetadata: { role: "admin" },
+      });
+      console.log(`${email} is now an admin in the admin Clerk app`);
     }
 
-    console.log(`Admin Clerk user found: ${clerkUser.id}`);
-
-    // Update MongoDB
-    user.role = "admin";
-
-    await user.save();
-
-    console.log("MongoDB role updated to admin");
-
-    // Update admin Clerk instance metadata
-    await adminClerkClient.users.updateUserMetadata(clerkUser.id, {
-      publicMetadata: {
-        role: "admin",
-      },
-    });
-
-    console.log("Admin Clerk role updated to admin");
-    console.log(`${email} is now an admin!`);
+    // Optional: keep the MongoDB role in sync when the same email exists there.
+    const result = await User.updateOne({ email }, { $set: { role: "admin" } });
+    if (result.matchedCount > 0) console.log("MongoDB role set to admin");
   } catch (error: any) {
-    console.error(
-      "Admin promotion failed:",
-      error?.message || error
-    );
-
-    if (error?.status) {
-      console.error("Status:", error.status);
-    }
-
-    if (error?.errors) {
-      console.error("Clerk errors:", error.errors);
-    }
+    console.error("Admin promotion failed:", error?.message || error);
+    if (error?.errors) console.error("Clerk errors:", error.errors);
   }
 };
 

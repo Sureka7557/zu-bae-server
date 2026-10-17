@@ -1,60 +1,72 @@
-import type { Request, Response, NextFunction, RequestHandler } from "express";
-import { clerkMiddleware, createClerkClient, getAuth } from "@clerk/express";
 
-/**
- * Verifies the Bearer token sent by the admin dashboard against the separate
- * ADMIN Clerk application, then checks that the user has role "admin".
- *
- * Everything is created lazily so it never runs before dotenv has loaded.
- */
+import type {
+  Request,
+  Response,
+  NextFunction,
+  RequestHandler,
+} from "express";
+import {
+  clerkMiddleware,
+  createClerkClient,
+  getAuth,
+} from "@clerk/express";
+
+const getSecretKey = () =>
+  process.env.CLERK_SECRET_KEY ||
+  process.env.ADMIN_CLERK_SECRET_KEY;
+
+const getPublishableKey = () =>
+  process.env.CLERK_PUBLISHABLE_KEY ||
+  process.env.ADMIN_CLERK_PUBLISHABLE_KEY;
 
 let adminAuthMw: RequestHandler | undefined;
 let adminClient: ReturnType<typeof createClerkClient> | undefined;
 
 const getAdminAuthMw = (): RequestHandler => {
+  const secretKey = getSecretKey();
+  const publishableKey = getPublishableKey();
+
+  if (!secretKey || !publishableKey) {
+    throw new Error("Clerk keys are missing from server configuration");
+  }
+
   adminAuthMw ??= clerkMiddleware({
-    secretKey: process.env.ADMIN_CLERK_SECRET_KEY,
-    publishableKey: process.env.ADMIN_CLERK_PUBLISHABLE_KEY,
+    secretKey,
+    publishableKey,
     authorizedParties: process.env.ADMIN_APP_URL
       ? [process.env.ADMIN_APP_URL]
       : undefined,
   }) as RequestHandler;
+
   return adminAuthMw;
 };
 
 const getAdminClient = () => {
-  adminClient ??= createClerkClient({
-    secretKey: process.env.ADMIN_CLERK_SECRET_KEY,
-  });
+  const secretKey = getSecretKey();
+
+  if (!secretKey) {
+    throw new Error("Clerk Secret Key is missing");
+  }
+
+  adminClient ??= createClerkClient({ secretKey });
   return adminClient;
 };
 
-// Used only when the session token doesn't carry the role claim.
-const roleCache = new Map<string, { role?: string; expires: number }>();
-const ROLE_TTL_MS = 60_000;
-
-const lookupRole = async (userId: string): Promise<string | undefined> => {
-  const hit = roleCache.get(userId);
-  if (hit && hit.expires > Date.now()) return hit.role;
-
-  const user = await getAdminClient().users.getUser(userId);
-  const role = (user.publicMetadata as { role?: string } | undefined)?.role;
-  roleCache.set(userId, { role, expires: Date.now() + ROLE_TTL_MS });
-  return role;
-};
-
-export const requireAdminAuth = (req: Request, res: Response, next: NextFunction) => {
-  if (!process.env.ADMIN_CLERK_SECRET_KEY || !process.env.ADMIN_CLERK_PUBLISHABLE_KEY) {
-    console.error("ADMIN_CLERK_SECRET_KEY / ADMIN_CLERK_PUBLISHABLE_KEY are not set");
+export const requireAdminAuth = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  if (!getSecretKey() || !getPublishableKey()) {
     return res.status(500).json({
       success: false,
-      message: "Admin authentication is not configured on the server",
+      message: "Clerk authentication is not configured",
     });
   }
 
   getAdminAuthMw()(req, res, async (err?: unknown) => {
     if (err) {
-      console.error("Admin auth failed:", (err as Error)?.message ?? err);
+      console.error("Admin auth failed:", (err as Error).message);
       return res.status(401).json({
         success: false,
         message: "Invalid or expired session",
@@ -67,14 +79,14 @@ export const requireAdminAuth = (req: Request, res: Response, next: NextFunction
       if (!auth.userId) {
         return res.status(401).json({
           success: false,
-          message: "Unauthorized. Please sign in.",
+          message: "Please sign in again",
         });
       }
 
-      // 1) role from the session token (needs the custom claim), 2) fall back
-      // to reading the user's public metadata from the admin Clerk app.
-      let role = (auth.sessionClaims?.metadata as { role?: string } | undefined)?.role;
-      if (!role) role = await lookupRole(auth.userId);
+      const clerkUser = await getAdminClient().users.getUser(auth.userId);
+      const role = (
+        clerkUser.publicMetadata as { role?: string } | undefined
+      )?.role;
 
       if (role !== "admin") {
         return res.status(403).json({
@@ -84,8 +96,9 @@ export const requireAdminAuth = (req: Request, res: Response, next: NextFunction
       }
 
       next();
-    } catch (e: any) {
-      console.error("Admin role check failed:", e?.message ?? e);
+    } catch (error: any) {
+      console.error("Admin role check failed:", error?.message || error);
+
       return res.status(500).json({
         success: false,
         message: "Could not verify admin access",

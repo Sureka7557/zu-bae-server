@@ -484,20 +484,24 @@ export const createProduct = async (
 
       throw dbError;
     }
-  } catch (error: any) {
-    console.error(
-      "Create product error:",
-      error?.message || error
-    );
+  }  catch (error: any) {
+    console.error("Create product error details:", {
+      message: error?.message,
+      name: error?.name,
+      http_code: error?.http_code,
+      status: error?.status,
+      code: error?.code,
+      cloudinaryError: error?.error?.message,
+      stack: error?.stack,
+    });
 
     res.status(500).json({
       success: false,
-      message:
-        error?.message ||
-        "Failed to create product",
+      message: error?.message || "Failed to create product",
     });
   }
 };
+
 
 // ============================================================
 // UPDATE PRODUCT
